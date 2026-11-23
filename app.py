@@ -1,3 +1,4 @@
+import time
 import hashlib
 import re
 
@@ -44,21 +45,35 @@ def has_chinese(s):
 
 
 def call_model(draft):
-    r = requests.post(
-        f"{URL}/completion",
-        headers={"Authorization": f"Bearer {KEY}"},
-        json={
-            "prompt": build_prompt(draft),
-            "temperature": 1.0,
-            "top_p": 0.95,
-            "top_k": 0,
-            "min_p": 0,
-            "repeat_penalty": 1.0,
-            "n_predict": 2048,
-        },
-        timeout=600,
-    )
-    r.raise_for_status()
+    payload = {
+        "prompt": build_prompt(draft),
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 0,
+        "min_p": 0,
+        "repeat_penalty": 1.0,
+        "n_predict": 2048,
+    }
+    r = None
+    for _ in range(40):  # wait up to ~7 minutes for the model to load
+        r = requests.post(
+            f"{URL}/completion",
+            headers={"Authorization": f"Bearer {KEY}"},
+            json=payload,
+            timeout=600,
+        )
+        if r.status_code in (502, 503, 504):  # server still starting
+            time.sleep(10)
+            continue
+        break
+
+    if r.status_code in (401, 403):
+        st.error("The server rejected the API key. Check that API_KEY in Streamlit secrets "
+                 "matches the key in your Modal secret 'humanizer-key'.")
+        st.stop()
+    if not r.ok:
+        st.error(f"Server returned {r.status_code}: {r.text[:500]}")
+        st.stop()
     return r.json()["content"].strip()
 
 
